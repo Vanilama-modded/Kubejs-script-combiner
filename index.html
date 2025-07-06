@@ -1,0 +1,355 @@
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>KubeJS Script File Combiner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- No need for KubeJS, just basic JS -->
+  <style>
+    body {
+      font-family: system-ui,sans-serif;
+      background: #23272b;
+      color: #e9e9e9;
+      padding: 40px 0;
+    }
+    .container {
+      background: var(--discord-bg-accent);
+      border-radius: 10px;
+      margin: 0 auto;
+      max-width: 430px;
+      padding: 2em 2em 2.5em 2em;
+      box-shadow: 0 11px 26px -14px #000a;
+    }
+    h1 {
+      text-align: center;
+      font-size: 1.6em;
+      font-weight: 700;
+    }
+    input[type="file"] {
+      display: block;
+      margin: 1.2em 0;
+      color: #23272b;
+      background: #fff;
+      border-radius: 5px;
+      font-size: 1em;
+      padding: 7px;
+    }
+    label {
+      font-size: 1.1em;
+      font-weight: 600;
+      margin-right: 7px;
+      vertical-align: middle;
+    }
+    :root {
+      --discord-accent: #5865f2;
+      --discord-accent-secondary: #4752c4;
+      --discord-success: #57f287;
+      --discord-danger: #ed4245;
+      --discord-bg-accent: #313338;
+      --discord-bg-link: #404eed;
+    }
+    select, button {
+      font-size: 1em;
+      padding: 7px 12px;
+      border-radius: 5px;
+      margin: 0.5em 0.4em 1em 0;
+      border: none;
+      background: var(--discord-accent);
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .14s;
+    }
+    select:focus, button:focus {
+      outline: 2px solid var(--discord-accent-secondary);
+    }
+    button:disabled {
+      background: #292b37;
+      color: #aaa;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    .output-link {
+      display: block;
+      margin: 1.5em auto 0 auto;
+      width: 98%;
+      text-align: center;
+      font-size: 1.05em;
+      background: var(--discord-bg-link);
+      border-radius: 7px;
+      padding: 0.95em 0.7em;
+      color: #e8ffe9;
+      text-decoration: none;
+      font-weight: 600;
+      border: 2px solid var(--discord-success);
+      max-width: 370px;
+      transition: background 0.16s;
+    }
+    .output-link:hover, .output-link:focus {
+      background: var(--discord-accent-secondary);
+    }
+    .note {
+      font-size: .95em;
+      color: #bbb;
+      margin: 0.3em 0 0.6em 0;
+      text-align: center;
+    }
+    .file-list {
+      margin: .2em 0 .6em 0;
+      font-size: 0.96em;
+      color: var(--discord-success);
+    }
+    .error-message {
+      color: var(--discord-danger);
+      font-size: .95em;
+      margin: .5em 0 0.7em .4em;
+    }
+    .clear-btn {
+      background: var(--discord-danger);
+      color: #fff;
+      margin-left: 0.3em;
+      margin-bottom: 1em;
+      border: none;
+      border-radius: 5px;
+      padding: 7px 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 1em;
+      transition: background .14s;
+    }
+    .clear-btn:disabled {
+      background: #7f2231;
+      color: #eee;
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Minecraft KubeJS Script Combiner</h1>
+    <label for="scriptType">Script Type:</label>
+    <select id="scriptType">
+      <option value="server_scripts">server_scripts (Server Scripts)</option>
+      <option value="startup_scripts">startup_scripts (Startup Scripts)</option>
+      <option value="client_scripts">client_scripts (Client Scripts)</option>
+    </select>
+    <span class="note">Select script type, then upload one or more .js files</span>
+    <input id="fileInput" type="file" multiple accept=".js">
+    <button id="clearFilesBtn" type="button" class="clear-btn" disabled>Clear Files</button>
+    <div class="file-list" id="fileList"></div>
+    <div class="error-message" id="errorMsg"></div>
+
+    <button id="combineBtn" disabled>Combine & Download</button>
+    <a style="display:none" class="output-link" id="downloadLink" download="">Download Combined Script</a>
+    <span class="note">
+      The combined file keeps each script's code, separated by comments indicating original filenames. The order matches your selection.
+    </span>
+  </div>
+  <script type="module">
+    // --- DOM refs
+    const fileInput = document.getElementById('fileInput');
+    const scriptType = document.getElementById('scriptType');
+    const combineBtn = document.getElementById('combineBtn');
+    const clearFilesBtn = document.getElementById('clearFilesBtn');
+    const fileList = document.getElementById('fileList');
+    const errorMsg = document.getElementById('errorMsg');
+    const downloadLink = document.getElementById('downloadLink');
+
+    /**
+     * @tweakable If true, allow only JavaScript files for upload (set to ".js")
+     */
+    const acceptedExtensions = ".js";
+
+    /**
+     * @tweakable Also add 'application/javascript' mimetype in file picker accept attribute
+     */
+    const acceptMimeType = false;
+
+    // Construct accept attribute value for input[type=file]
+    function computeAcceptValue() {
+      let value = acceptedExtensions;
+      if (acceptMimeType) value += ",application/javascript";
+      return value;
+    }
+
+    // Set accept attribute. Trigger update if @tweakable values changed.
+    fileInput.setAttribute("accept", computeAcceptValue());
+
+    // Watch for tweaks: Reflect acceptedExtensions or acceptMimeType changes in file input accept attrib.
+    if (window.__tweakableWatchers__ === undefined) window.__tweakableWatchers__ = [];
+    window.__tweakableWatchers__.push(() => {
+      fileInput.setAttribute("accept", computeAcceptValue());
+    });
+
+    /**
+     * @tweakable When true, adding more files will append to the list, not replace. 
+     */
+    let appendFilesOnInput /* @tweakable should adding more files append to the list (true), or replace all (false) */ = true;
+    let loadedFiles = [];
+
+    fileInput.addEventListener('change', (ev) => {
+      const inputFiles = Array.from(ev.target.files);
+      // append/new logic
+      if (appendFilesOnInput) {
+        // avoid duplicates by name & size
+        for (const f of inputFiles) {
+          if (!loadedFiles.some(lf => lf.name === f.name && lf.size === f.size)) {
+            loadedFiles.push(f);
+          }
+        }
+      } else {
+        loadedFiles = inputFiles;
+      }
+      listSelectedFiles();
+      errorMsg.textContent = "";
+      combineBtn.disabled = loadedFiles.length === 0;
+      clearFilesBtn.disabled = loadedFiles.length === 0;
+      downloadLink.style.display = "none";
+      // Reset file input so that selecting the same file(s) again triggers 'change'
+      fileInput.value = "";
+    });
+
+    // Clear files button
+    clearFilesBtn.addEventListener('click', () => {
+      loadedFiles = [];
+      listSelectedFiles();
+      combineBtn.disabled = true;
+      clearFilesBtn.disabled = true;
+      errorMsg.textContent = "";
+      downloadLink.style.display = "none";
+    });
+
+    function listSelectedFiles() {
+      if (!loadedFiles.length) {
+        fileList.textContent = "";
+        clearFilesBtn.disabled = true;
+        return;
+      }
+      // Only show files matching the acceptedExtensions, warn otherwise
+      const extList = acceptedExtensions
+        .split(",")
+        .map(e => e.trim().toLowerCase().replace(/^\./, ''));
+      const goodFiles = loadedFiles.filter(f => {
+        const ext = f.name.split('.').pop().toLowerCase();
+        return extList.includes(ext);
+      });
+      const badFiles = loadedFiles.filter(f => !goodFiles.includes(f));
+      fileList.textContent =
+        "Selected files (" + loadedFiles.length + "): " +
+        loadedFiles.map(f=>f.name).join(", ");
+
+      if (badFiles.length) {
+        errorMsg.textContent = "Some files are not accepted: " + badFiles.map(f=>f.name).join(", ");
+        combineBtn.disabled = true;
+      } else if (!goodFiles.length) {
+        errorMsg.textContent = "Please select at least one " + acceptedExtensions + " file.";
+        combineBtn.disabled = true;
+      } else {
+        errorMsg.textContent = "";
+        combineBtn.disabled = false;
+      }
+      clearFilesBtn.disabled = loadedFiles.length === 0;
+    }
+
+    /**
+     * @tweakable Include a comment with the filename between scripts
+     */
+    const includeFilenameComment = true;
+
+    /**
+     * @tweakable Separator string inserted between combined scripts
+     */
+    const scriptSeparator =
+      "\n// ---------------------------------------------------------------------\n";
+
+    // Combine files logic
+    combineBtn.addEventListener('click', async () => {
+      errorMsg.textContent = "";
+      downloadLink.style.display = "none";
+      if (!loadedFiles.length) return;
+      // Restrict only to expected file types
+      const extList = acceptedExtensions
+        .split(",")
+        .map(e => e.trim().toLowerCase().replace(/^\./, ''));
+      const filesToCombine = loadedFiles.filter(f =>
+        extList.includes(f.name.split('.').pop().toLowerCase())
+      );
+      if (!filesToCombine.length) {
+        errorMsg.textContent = "No valid " + acceptedExtensions + " files selected.";
+        return;
+      }
+      try {
+        // Read file contents and sort by user selection order
+        const fileContents = await Promise.all(filesToCombine.map(f =>
+          f.text().then(content => ({name: f.name, content}))
+        ));
+        // Compose combined script
+        const combined = fileContents.map(fc => {
+          let c = fc.content.trimEnd();
+          if (includeFilenameComment) {
+            c = "// --- File: " + fc.name + "\n" + c;
+          }
+          return c;
+        }).join(scriptSeparator);
+
+        // Pick output file name based on type
+        let scriptFolder = scriptType.value;
+        let outNameBase;
+        switch(scriptFolder) {
+          case "server_scripts": outNameBase = "combined_server_script.js"; break;
+          case "startup_scripts": outNameBase = "combined_startup_script.js"; break;
+          case "client_scripts": outNameBase = "combined_client_script.js"; break;
+          default: outNameBase = "combined_script.js";
+        }
+        const blob = new Blob([combined], {type: 'text/javascript'});
+        const url = URL.createObjectURL(blob);
+        downloadLink.download = outNameBase;
+        downloadLink.href = url;
+        downloadLink.style.display = "inline-block";
+        downloadLink.textContent = "Download: " + outNameBase;
+      } catch(e) {
+        errorMsg.textContent = "Error reading files or combining. " + e;
+      }
+    });
+
+    // Invalidate download if script type changes
+    scriptType.addEventListener('change', () => {
+      downloadLink.style.display = "none";
+    });
+
+    // Enable drag & drop support to append files
+    /**
+     * @tweakable Enable drag-and-drop for file uploads (true to enable, false to ignore drops)
+     */
+    let enableDragDrop /* @tweakable enable drag and drop file input */ = true;
+    if (enableDragDrop) {
+      document.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      document.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const droppedFiles = Array.from(e.dataTransfer.files).filter(f =>
+          f.type === "application/javascript" || f.name.endsWith(".js")
+        );
+        // Add dropped files just like file input
+        if (appendFilesOnInput) {
+          for (const f of droppedFiles) {
+            if (!loadedFiles.some(lf => lf.name === f.name && lf.size === f.size)) {
+              loadedFiles.push(f);
+            }
+          }
+        } else {
+          loadedFiles = droppedFiles;
+        }
+        listSelectedFiles();
+        errorMsg.textContent = "";
+        combineBtn.disabled = loadedFiles.length === 0;
+        clearFilesBtn.disabled = loadedFiles.length === 0;
+        downloadLink.style.display = "none";
+      });
+    }
+  </script>
+</body>
+</html>
