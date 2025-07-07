@@ -122,6 +122,48 @@
       opacity: 0.6;
       cursor: not-allowed;
     }
+    .file-priority-table {
+      margin-top: 0.4em;
+      width: 100%;
+      border-collapse: collapse;
+      background: #232339;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 1em;
+    }
+    .file-priority-table th, .file-priority-table td {
+      padding: 0.5em 0.7em;
+      text-align: left;
+      font-size: 0.98em;
+    }
+    .file-priority-table th {
+      background: var(--discord-bg-link);
+      color: #f4f9ff;
+      font-weight: 700;
+      border-bottom: 2px solid var(--discord-accent-secondary);
+    }
+    .file-priority-table td {
+      border-bottom: 1px solid #44465a;
+      color: var(--discord-success);
+      background: #35365a;
+    }
+    .file-priority-table input[type="number"] {
+      background: #232339;
+      color: #fff;
+      border: 1px solid var(--discord-accent-secondary);
+      border-radius: 3px;
+      width: 70px;
+      padding: 0.2em 0.35em;
+      font-size: 1em;
+    }
+    .file-priority-table input[type="number"]:focus {
+      outline: 2px solid var(--discord-accent-secondary);
+      border: 1.5px solid var(--discord-accent-secondary);
+    }
+    @media (max-width: 500px) {
+      .container { padding: .8em 0.4em; }
+      .file-priority-table th, .file-priority-table td { font-size: 0.94em; }
+    }
   </style>
 </head>
 <body>
@@ -137,12 +179,13 @@
     <input id="fileInput" type="file" multiple accept=".js">
     <button id="clearFilesBtn" type="button" class="clear-btn" disabled>Clear Files</button>
     <div class="file-list" id="fileList"></div>
+    <div id="prioritySection"></div>
     <div class="error-message" id="errorMsg"></div>
 
     <button id="combineBtn" disabled>Combine & Download</button>
     <a style="display:none" class="output-link" id="downloadLink" download="">Download Combined Script</a>
     <span class="note">
-      The combined file keeps each script's code, separated by comments indicating original filenames. The order matches your selection.
+      The combined file keeps each script's code, separated by comments indicating original filenames. The order matches your selection or set priority.
     </span>
   </div>
   <script type="module">
@@ -154,6 +197,7 @@
     const fileList = document.getElementById('fileList');
     const errorMsg = document.getElementById('errorMsg');
     const downloadLink = document.getElementById('downloadLink');
+    const prioritySection = document.getElementById('prioritySection');
 
     /**
      * @tweakable If true, allow only JavaScript files for upload (set to ".js")
@@ -185,22 +229,54 @@
      * @tweakable When true, adding more files will append to the list, not replace. 
      */
     let appendFilesOnInput /* @tweakable should adding more files append to the list (true), or replace all (false) */ = true;
+
+    /**
+     * @typedef {{
+     *   file: File,
+     *   priority: number // @tweakable Default script file priority, higher values are placed first in combined file
+     * }} PriorityFileWrapper
+     */
+
+    /**
+     * @tweakable Allow negative priority values for script upload ordering
+     */
+    const allowNegativePriority = true;
+
+    /**
+     * @tweakable The minimum allowed priority value in the input control
+     */
+    const minPriority = allowNegativePriority ? -1000 : 0;
+
+    /**
+     * @tweakable The maximum allowed priority value in the input control
+     */
+    const maxPriority = 1000;
+
+    // Internal loadedFiles format: Array<{file:File, priority: number}>
+    /** @type {PriorityFileWrapper[]} */
     let loadedFiles = [];
+
+    /**
+     * Helper to determine if an item is already present by file name & size.
+     */
+    function alreadyLoaded(file) {
+      return loadedFiles.some(lf => lf.file.name === file.name && lf.file.size === file.size);
+    }
 
     fileInput.addEventListener('change', (ev) => {
       const inputFiles = Array.from(ev.target.files);
-      // append/new logic
+      // Add as {file, priority}
       if (appendFilesOnInput) {
-        // avoid duplicates by name & size
         for (const f of inputFiles) {
-          if (!loadedFiles.some(lf => lf.name === f.name && lf.size === f.size)) {
-            loadedFiles.push(f);
+          if (!alreadyLoaded(f)) {
+            loadedFiles.push({file: f, priority: 0 /* @tweakable Default file priority when adding new files */});
           }
         }
       } else {
-        loadedFiles = inputFiles;
+        loadedFiles = inputFiles.map(f => ({file: f, priority: 0 /* @tweakable Default file priority */}));
       }
       listSelectedFiles();
+      updatePriorityTable();
       errorMsg.textContent = "";
       combineBtn.disabled = loadedFiles.length === 0;
       clearFilesBtn.disabled = loadedFiles.length === 0;
@@ -213,6 +289,7 @@
     clearFilesBtn.addEventListener('click', () => {
       loadedFiles = [];
       listSelectedFiles();
+      updatePriorityTable();
       combineBtn.disabled = true;
       clearFilesBtn.disabled = true;
       errorMsg.textContent = "";
@@ -223,23 +300,24 @@
       if (!loadedFiles.length) {
         fileList.textContent = "";
         clearFilesBtn.disabled = true;
+        prioritySection.innerHTML = "";
         return;
       }
       // Only show files matching the acceptedExtensions, warn otherwise
       const extList = acceptedExtensions
         .split(",")
         .map(e => e.trim().toLowerCase().replace(/^\./, ''));
-      const goodFiles = loadedFiles.filter(f => {
-        const ext = f.name.split('.').pop().toLowerCase();
+      const goodFiles = loadedFiles.filter(({file}) => {
+        const ext = file.name.split('.').pop().toLowerCase();
         return extList.includes(ext);
       });
-      const badFiles = loadedFiles.filter(f => !goodFiles.includes(f));
+      const badFiles = loadedFiles.filter(({file}) => !goodFiles.includes(({file}) => file));
       fileList.textContent =
         "Selected files (" + loadedFiles.length + "): " +
-        loadedFiles.map(f=>f.name).join(", ");
+        loadedFiles.map(({file})=>file.name).join(", ");
 
       if (badFiles.length) {
-        errorMsg.textContent = "Some files are not accepted: " + badFiles.map(f=>f.name).join(", ");
+        errorMsg.textContent = "Some files are not accepted: " + badFiles.map(({file})=>file.name).join(", ");
         combineBtn.disabled = true;
       } else if (!goodFiles.length) {
         errorMsg.textContent = "Please select at least one " + acceptedExtensions + " file.";
@@ -249,6 +327,8 @@
         combineBtn.disabled = false;
       }
       clearFilesBtn.disabled = loadedFiles.length === 0;
+      // Priority table UI handled separately
+      updatePriorityTable();
     }
 
     /**
@@ -262,6 +342,65 @@
     const scriptSeparator =
       "\n// ---------------------------------------------------------------------\n";
 
+    // --- File Priority Table ---
+    function updatePriorityTable() {
+      if (!loadedFiles.length) {
+        prioritySection.innerHTML = "";
+        return;
+      }
+      // Sort loadedFiles for display: just as added
+      let html = `
+      <table class="file-priority-table">
+        <thead>
+          <tr>
+            <th>File Name</th>
+            <th>Priority<br>
+              <span style="font-weight: 400;font-size:0.88em;color:#ccc;">
+                (Higher = Comes earlier)
+              </span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+      `;
+      for (let i = 0; i < loadedFiles.length; ++i) {
+        const f = loadedFiles[i];
+        html += `<tr>
+          <td>${f.file.name}</td>
+          <td>
+            <input 
+              type="number" 
+              min="${minPriority}" 
+              max="${maxPriority}" 
+              step="1" 
+              value="${f.priority}" 
+              data-index="${i}" 
+              aria-label="Set priority for ${f.file.name}"
+              title="Set priority (higher = appears earlier in combined file)">
+          </td>
+        </tr>`;
+      }
+      html += `
+        </tbody>
+      </table>
+      <div class="note" style="margin-top:-0.7em;">
+        You can adjust the priority of each file. Files with higher priority are placed at the beginning of the combined script.
+        <br>Unchanged = priority 0.
+      </div>
+      `;
+      prioritySection.innerHTML = html;
+      // Link up input events
+      prioritySection.querySelectorAll('input[type="number"]').forEach(input => {
+        input.addEventListener('input', e => {
+          const idx = parseInt(e.target.dataset.index, 10);
+          let v = parseInt(e.target.value, 10);
+          if (isNaN(v)) v = 0;
+          v = Math.max(minPriority, Math.min(v, maxPriority));
+          loadedFiles[idx].priority = v;
+        });
+      });
+    }
+
     // Combine files logic
     combineBtn.addEventListener('click', async () => {
       errorMsg.textContent = "";
@@ -271,23 +410,43 @@
       const extList = acceptedExtensions
         .split(",")
         .map(e => e.trim().toLowerCase().replace(/^\./, ''));
-      const filesToCombine = loadedFiles.filter(f =>
-        extList.includes(f.name.split('.').pop().toLowerCase())
+      /** @type {PriorityFileWrapper[]} */
+      const filesToCombine = loadedFiles.filter(({file}) =>
+        extList.includes(file.name.split('.').pop().toLowerCase())
       );
       if (!filesToCombine.length) {
         errorMsg.textContent = "No valid " + acceptedExtensions + " files selected.";
         return;
       }
+      // Sort: higher priority first, then original order if same priority
+      /** @tweakable Sort order for combined scripts: sort by descending priority, tie-break on original upload order */
+      filesToCombine.sort((a, b) => {
+        if (b.priority !== a.priority) {
+          return b.priority - a.priority; // higher priority first
+        }
+        // Stable: order as uploaded for ties
+        return loadedFiles.indexOf(a) - loadedFiles.indexOf(b);
+      });
       try {
-        // Read file contents and sort by user selection order
-        const fileContents = await Promise.all(filesToCombine.map(f =>
-          f.text().then(content => ({name: f.name, content}))
+        // Read file contents in that order
+        const fileContents = await Promise.all(filesToCombine.map(({file, priority}) =>
+          file.text().then(content => ({name: file.name, content, priority}))
         ));
-        // Compose combined script
+
+        /**
+         * @tweakable Format for file priority info comment in the combined file
+         * You can edit this template string if you want to change how the priority is rendered.
+         * Placeholders: {priority} will be replaced with the value.
+         */
+        const priorityCommentFormat /* @tweakable combined file 'priority' info comment format */ = "// priority: {priority}";
+
         const combined = fileContents.map(fc => {
           let c = fc.content.trimEnd();
+          let priorityCommentLine = priorityCommentFormat.replace("{priority}", fc.priority);
           if (includeFilenameComment) {
-            c = "// --- File: " + fc.name + "\n" + c;
+            c = `// --- File: ${fc.name}\n${priorityCommentLine}\n` + c;
+          } else {
+            c = `${priorityCommentLine}\n` + c;
           }
           return c;
         }).join(scriptSeparator);
@@ -333,17 +492,17 @@
         const droppedFiles = Array.from(e.dataTransfer.files).filter(f =>
           f.type === "application/javascript" || f.name.endsWith(".js")
         );
-        // Add dropped files just like file input
         if (appendFilesOnInput) {
           for (const f of droppedFiles) {
-            if (!loadedFiles.some(lf => lf.name === f.name && lf.size === f.size)) {
-              loadedFiles.push(f);
+            if (!alreadyLoaded(f)) {
+              loadedFiles.push({file: f, priority: 0 /* @tweakable Default file priority for drag drop */});
             }
           }
         } else {
-          loadedFiles = droppedFiles;
+          loadedFiles = droppedFiles.map(f => ({file: f, priority: 0 /* @tweakable Default file priority drag drop */}));
         }
         listSelectedFiles();
+        updatePriorityTable();
         errorMsg.textContent = "";
         combineBtn.disabled = loadedFiles.length === 0;
         clearFilesBtn.disabled = loadedFiles.length === 0;
